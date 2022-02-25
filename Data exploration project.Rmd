@@ -1,0 +1,122 @@
+---
+title: "Data Exploration Project"
+author: "Xinzhu Sun"
+date: '2022-02-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(stringr)
+library(lubridate)
+library(dplyr)
+library(caret)
+
+getwd()
+setwd('/Users/didi/Desktop/PA2/01_600_20220222/')
+
+cohorts <- read.csv("most_recent_cohorts.csv")
+earn_med <- median(cohorts$md_earn_wne_p10.REPORTED.EARNINGS) 
+id_name_link = read.csv(file = dir[2],header=T,sep = ",")
+```
+
+## 1. Divide middle - and high-income schools
+
+Calculate the overall median earnings of graduates ten years after graduation of all schools in Most+Recent+Cohorts+(Scorecard+Elements).csv. Schools above the median are labeled as "high income" and schools below the median are labeled as "low income".
+
+```{r example label, echo=FALSE, warning=FALSE}
+
+cohorts <- cohorts %>%
+  select(INSTNM, md_earn_wne_p10.REPORTED.EARNINGS) %>%
+  mutate(level = ifelse(md_earn_wne_p10.REPORTED.EARNINGS > earn_med, 'high', 'low')) 
+
+```
+
+## 2.Data level
+
+I started by concatenating all the Google Trends data into a single data set, merge.data, in which I used a for loop
+
+```{r example label, echo=FALSE, warning=FALSE}
+
+a = list.files("Lab3_Rawdata")
+dir = paste("Lab3_Rawdata/",list.files("Lab3_Rawdata"),sep="")
+n = length(dir)
+merge.data = read.csv(file = dir[4],header=T,sep = ",")
+
+for (i in 5:n){
+  new.data = read.csv(file=dir[i],header=T,sep=",")
+  merge.data = rbind(merge.data,new.data)
+}
+
+```
+
+The next step is to consolidate the data levels for each school month and standardize all Google Trends indexes to make the data comparable
+
+```{r, echo=FALSE, warning=FALSE}
+
+merge.data <- merge.data %>%
+  group_by(schname, keyword) %>%
+  mutate(index_std = (index - mean(index,na.rm = TRUE))/sd(index, na.rm = TRUE)) %>%
+  mutate(date = str_sub(monthorweek, 1, 10)) %>%
+  mutate(date = ymd(date)) %>%
+  mutate(after_2015 = date > ymd('2015-12-31'))
+
+```
+
+
+## 3.Data merge
+
+In order to connect id_name_link, Google Trends and scorecard data, the following preparations need to be made: 1) Change the column name of scorecard to be consistent with id_name_link; 2) Count the number of OCCURRENCES of id_name_link by schname grouping to avoid multiple universities sharing the same schname
+
+```{r}
+
+names(cohorts)[names(cohorts) == 'UNITID'] <- 'unitid' 
+names(cohorts)[names(cohorts) == 'OPEID'] <- 'opeid' 
+
+id_name_link <- id_name_link %>%
+  group_by(schname) %>%
+  mutate(n = n()) %>%
+  filter(n == 1)
+
+```
+
+Integrate id_NAMe_link, scorecard and Google Trends data sets together to prepare for the next step of establishing regression models
+
+```{r}
+
+df = left_join(merge.data, id_name_link, by='schname') %>%
+  inner_join(cohorts, by=c("unitid", "opeid"))
+
+```
+
+## 4.Regression analysis
+
+Virtual variables were established based on after_2015 and IS_high_level, with the two as independent variables and index_STD as dependent variables, logistic regression equations were established and the results were analyzed.
+
+```{r}
+
+e <- dummyVars(~after_2015, df,fullRank = T)
+trf <- data.frame(predict(e,newdata = df))
+e_2 <- dummyVars(~level, df,fullRank = T)
+trf_2 <- data.frame(predict(e_2,newdata = df))
+
+rd = cbind(df, trf) %>%
+  cbind(trf_2) 
+
+reg <- lm(index_std ~ after_2015TRUE, data=rd)
+summary(reg)
+
+mtcars <-  mtcars %>%
+  mutate(resids = resid(m))
+
+```
+
+
+## Including Plots
+
+```{r pressure, echo=FALSE}
+ggplot(mtcars, aes(x = after_2015TRUE, y = resids)) + geom_point() + geom_hline(aes(yintercept = 0))
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
